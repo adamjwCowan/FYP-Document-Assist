@@ -1,0 +1,8 @@
+PyQt5
+transformers
+PyPDF2
+python-docx
+ttkbootstrap
+torch
+pdfplumber
+python-docx
