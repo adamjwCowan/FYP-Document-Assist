@@ -1,37 +1,32 @@
 from PyQt5.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
-    QPushButton, QLabel, QFileDialog, QSplitter
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QTextEdit, QPushButton, QLabel, QFileDialog, QSplitter
 )
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QTextCursor
-from PyQt5.QtGui import QImageReader, QPixmap
-from PyPDF2 import PdfReader
-from docx import Document
-import os
-
+from PyQt5.QtGui import QPixmap
+from io import BytesIO
+from file_processing import process_pdf, process_docx
+from ai_model import get_document_answer
+from PIL import Image
 
 class ChatApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Chat and Document Viewer")
+        self.setWindowTitle("Document QA Assistant")
         self.setGeometry(100, 100, 1200, 800)
+        self.document_images = []  # List to hold PIL Image objects from the loaded document
         self.init_ui()
 
     def init_ui(self):
-        # Central widget setup
         central_widget = QWidget(self)
         self.setCentralWidget(central_widget)
-
-        # Main layout
         main_layout = QHBoxLayout(central_widget)
 
-        # Sidebar (chat)
+        # Sidebar: Chat interface
         self.chat_box = QTextEdit()
         self.chat_box.setReadOnly(True)
-
         self.input_box = QTextEdit()
         self.input_box.setFixedHeight(50)
-
         self.send_button = QPushButton("Send")
         self.send_button.clicked.connect(self.handle_user_input)
 
@@ -41,10 +36,9 @@ class ChatApp(QMainWindow):
         sidebar_layout.addWidget(self.input_box)
         sidebar_layout.addWidget(self.send_button)
 
-        # File viewer
-        self.file_viewer = QTextEdit()
-        self.file_viewer.setReadOnly(True)
-
+        # Document Viewer: Display the first page of the document
+        self.file_viewer = QLabel("No document loaded.")
+        self.file_viewer.setAlignment(Qt.AlignCenter)
         self.open_file_button = QPushButton("Open File")
         self.open_file_button.clicked.connect(self.open_file)
 
@@ -53,57 +47,52 @@ class ChatApp(QMainWindow):
         file_layout.addWidget(self.file_viewer)
         file_layout.addWidget(self.open_file_button)
 
-        # Combine layouts with splitter
         splitter = QSplitter(Qt.Horizontal)
         sidebar_widget = QWidget()
         sidebar_widget.setLayout(sidebar_layout)
-
-        file_viewer_widget = QWidget()
-        file_viewer_widget.setLayout(file_layout)
-
+        file_widget = QWidget()
+        file_widget.setLayout(file_layout)
         splitter.addWidget(sidebar_widget)
-        splitter.addWidget(file_viewer_widget)
-
+        splitter.addWidget(file_widget)
         main_layout.addWidget(splitter)
 
     def handle_user_input(self):
-        """Handle user input and display response."""
         user_input = self.input_box.toPlainText().strip()
         if not user_input:
             return
-
-        self.chat_box.append(f"You: {user_input}")
-        response = self.get_response(user_input)
-        self.chat_box.append(f"Bot: {response}")
+        self.chat_box.append("You: " + user_input)
+        # Use the first image for answering questions
+        if self.document_images:
+            answer = get_document_answer(self.document_images[0], user_input)
+            self.chat_box.append("Bot: " + answer)
+        else:
+            self.chat_box.append("Bot: No document loaded. Please upload a document.")
         self.input_box.clear()
 
-    def get_response(self, user_input):
-        """Get AI-generated response (to be implemented in ai_model)."""
-        from ai_model import get_response
-        return get_response(user_input)
-
     def open_file(self):
-        """Open and display PDF or DOCX files."""
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Open File", "", "PDF Files (*.pdf);;Word Documents (*.docx);;All Files (*)"
         )
         if file_path:
-            if file_path.endswith(".pdf"):
-                self.display_pdf(file_path)
-            elif file_path.endswith(".docx"):
-                self.display_docx(file_path)
+            if file_path.lower().endswith(".pdf"):
+                self.document_images = process_pdf(file_path)
+            elif file_path.lower().endswith(".docx"):
+                self.document_images = process_docx(file_path)
+            # Display the first page in the document viewer if available
+            if self.document_images:
+                self.display_image(self.document_images[0])
+                self.chat_box.append("Document loaded successfully.")
+            else:
+                self.chat_box.append("Failed to load document.")
 
-    def display_pdf(self, file_path):
-        """Render and display PDF file content."""
-        reader = PdfReader(file_path)
-        content = ""
-        for page in reader.pages:
-            content += page.extract_text() + "\n"
-
-        self.file_viewer.setPlainText(content)
-
-    def display_docx(self, file_path):
-        """Render and display DOCX file content."""
-        doc = Document(file_path)
-        content = "\n".join([paragraph.text for paragraph in doc.paragraphs])
-        self.file_viewer.setPlainText(content)
+    def display_image(self, image):
+        """
+        Convert a PIL Image to QPixmap and display it in the QLabel.
+        """
+        image_bytes = BytesIO()
+        image.save(image_bytes, format='PNG')
+        image_bytes.seek(0)
+        pixmap = QPixmap()
+        pixmap.loadFromData(image_bytes.read(), "PNG")
+        self.file_viewer.setPixmap(pixmap.scaled(
+            self.file_viewer.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))

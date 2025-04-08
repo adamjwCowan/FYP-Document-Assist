@@ -1,22 +1,33 @@
-from PyPDF2 import PdfReader
-from docx import Document
-
+import os
+from pdf2image import convert_from_path
+from docx2pdf import convert as docx2pdf_convert
+from PIL import Image
 
 def process_pdf(file_path):
-    """Extract text from a PDF file."""
+    """
+    Convert each page of the PDF to an image.
+    Returns a list of PIL Image objects.
+    """
     try:
-        reader = PdfReader(file_path)
-        text = "\n".join([page.extract_text() for page in reader.pages])
-        return text
+        images = convert_from_path(file_path)
+        return images
     except Exception as e:
-        return f"Error processing PDF: {str(e)}"
-
+        print(f"Error processing PDF: {e}")
+        return []
 
 def process_docx(file_path):
-    """Extract text from a DOCX file."""
+    """
+    Convert a DOCX file to PDF using docx2pdf,
+    then convert the PDF to images.
+    """
     try:
-        doc = Document(file_path)
-        text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
-        return text
+        # Convert DOCX to a temporary PDF file
+        output_pdf = file_path.replace(".docx", ".pdf")
+        docx2pdf_convert(file_path, output_pdf)
+        images = process_pdf(output_pdf)
+        # Optionally remove the temporary PDF
+        os.remove(output_pdf)
+        return images
     except Exception as e:
-        return f"Error processing DOCX: {str(e)}"
+        print(f"Error processing DOCX: {e}")
+        return []

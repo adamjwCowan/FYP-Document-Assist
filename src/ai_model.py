@@ -1,13 +1,18 @@
 from transformers import pipeline
 
-# Load the CodeBERT model for text generation
-print("Loading model...")
-model = pipeline("text-generation", model="microsoft/codebert-base", device=-1)
+# Initialize the document question-answering pipeline using the fine-tuned model
+document_qa = pipeline(
+    "document-question-answering",
+    model="impira/layoutlm-document-qa"
+)
 
-def get_response(user_input):
-    """Generate a response using the CodeBERT model."""
+def get_document_answer(image, question):
+    """
+    Given a PIL image (a page of a document) and a question,
+    returns the answer from the document.
+    """
     try:
-        response = model(user_input, max_length=50, num_return_sequences=1)
-        return response[0]['generated_text']
+        result = document_qa(image, question)
+        return result.get("answer", "No answer found.")
     except Exception as e:
-        return f"Error: {str(e)}"
+        return f"Error processing document: {str(e)}" 
