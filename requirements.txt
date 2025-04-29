@@ -1,9 +1,5 @@
-PyQt5
 transformers
 torchvision
-PyPDF2
-python-docx
-ttkbootstrap
 torch
-pdfplumber
-python-docx
+streamlit
+streamlit-pdf-viewer
