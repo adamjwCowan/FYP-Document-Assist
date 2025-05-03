@@ -3,3 +3,6 @@ torchvision
 torch
 streamlit
 streamlit-pdf-viewer
+pytesseract
+pdf2image
+Pillow
