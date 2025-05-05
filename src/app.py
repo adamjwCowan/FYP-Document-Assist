@@ -22,25 +22,23 @@ def chat_content():
 # 3) Create two columns
 col_chat, col_pdf = st.columns([1, 2], gap="medium")
 
-# ─── 4) Chat column ─────────────────────────────────────────────────────────
+# 4) Chat column
 with col_chat:
     st.subheader("💬 Chat with Doc Assist")
 
-    # 4.1) Scrollable history box
+    # Scrollable history box
     with st.container(height=600, border=True):
         for role, msg in st.session_state.history:
             with st.chat_message(role):
                 st.write(msg)
 
-    # 4.2) Floating input at bottom of chat column
+    # Floating input at bottom of chat column
     input_ctr = st.container()
     with input_ctr:
         st.chat_input(key="content", on_submit=chat_content)
 
-# 4.3) Float the entire chat column
-#    - top: offset below header (adjust as needed)
-#    - left: offset from left edge (aligns with col position)
-#    - width: match the column’s relative width (here ~33%)
+# Float chat column
+
 css = float_css_helper(
     top="4rem",          # leave room for any Streamlit header(s)
     left="1rem",         # small margin from the left
@@ -49,7 +47,7 @@ css = float_css_helper(
 )
 col_chat.float(css=css)
 
-# ─── 5) PDF column ──────────────────────────────────────────────────────────
+# 5) PDF column
 with col_pdf:
     st.subheader("📄 Document Viewer")
 
@@ -72,7 +70,7 @@ with col_pdf:
                 tmp.write(uploaded.read())
                 st.session_state.pdf_path = tmp.name
 
-# 7) Float the PDF column to the same vertical offset
+# 7) Float PDF column to the same vertical offset
 css_pdf = float_css_helper(
     top="4rem",
     left="35%",
