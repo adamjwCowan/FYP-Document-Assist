@@ -1,8 +1,9 @@
 import streamlit as st
-from streamlit_pdf_viewer import pdf_viewer
-from ai_model import get_document_answer
 import tempfile
+from pdf2image import convert_from_path
 from streamlit_float import float_init, float_css_helper
+from ai_model import get_document_answer
+from streamlit_pdf_viewer import pdf_viewer # redundancy if necessary
 
 # 1) Page config & float init
 st.set_page_config(layout="wide", page_title="Document QA Assistant")
@@ -44,37 +45,81 @@ css = float_css_helper(
     left="1rem",         # small margin from the left
     width="32%",         # roughly 1 / (1+2) of the page width
     height="calc(100vh - 4rem)",  # full viewport height minus header
+    custom_css="""z-index: 9999;
+    pointer-events: auto;
+    """
 )
 col_chat.float(css=css)
 
-# 5) PDF column
+col_chat, col_pdf = st.columns([1, 2], gap="medium")
 with col_pdf:
-    st.subheader("📄 Document Viewer")
 
-    def clear_pdf():
-        st.session_state.pop("pdf_path", None)
 
-    pdf_path = st.session_state.get("pdf_path")
-    if pdf_path:
-        st.button("🗑 Clear PDF", on_click=clear_pdf)
-        st.markdown(
-            "<div style='margin:0 auto; max-width:100%; padding-top:10px;'>",
-            unsafe_allow_html=True,
+    # Only show uploader when no PDF is loaded
+    if "pdf_pages" not in st.session_state:
+        uploaded = st.file_uploader(
+            "Drag & drop your Document (PDF) here",
+            type="pdf",
+            key="pdf_uploader"     # <<< unique key here
         )
-        pdf_viewer(input=pdf_path, width="100%", height=800)
-        st.markdown("</div>", unsafe_allow_html=True)
-    else:
-        uploaded = st.file_uploader("Drag & drop your PDF here", type="pdf")
         if uploaded:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                 tmp.write(uploaded.read())
                 st.session_state.pdf_path = tmp.name
+            st.session_state.pdf_pages = convert_from_path(
+                st.session_state.pdf_path
+            )
+            st.session_state.page_index = 0
 
-# 7) Float PDF column to the same vertical offset
+    pages = st.session_state.get("pdf_pages", [])
+    if pages:
+        idx = st.session_state.page_index
+
+        # Navigation layout with Clear PDF in the middle
+        prev_col, clear_col, next_col = st.columns([1, 1, 1], gap="small")
+
+        with prev_col:
+            if st.button("← Previous") and idx >= 2:
+                st.session_state.page_index -= 2
+
+        with clear_col:
+            if st.button("🗑 Clear PDF"):
+                for k in ("pdf_path", "pdf_pages", "page_index"):
+                    st.session_state.pop(k, None)
+                st.rerun()
+
+        with next_col:
+            if st.button("Next →") and idx + 2 < len(pages):
+                st.session_state.page_index += 2
+
+        # Display two pages side by side
+        p1 = pages[idx]
+        p2 = pages[idx + 1] if idx + 1 < len(pages) else None
+
+        left, right = st.columns([1, 1], gap="small")
+        with left:
+            st.image(p1, use_container_width=True)
+        with right:
+            if p2:
+                st.image(p2, use_container_width=True)
+            else:
+                st.write("")  # empty if odd page
+
+# ─── Float both columns so they stay fixed below header ────────────────────
+css_chat = float_css_helper(
+    top="2rem",
+    left="1rem",
+    width="32%",
+    height="calc(100vh - 4rem)",
+    z_index="2" #Chat column floats on top of pdf rendering
+)
+col_chat.float(css=css_chat)
+
 css_pdf = float_css_helper(
     top="4rem",
     left="35%",
-    width="66%",
-    height="calc(100vh - 4rem)"
+    width="62%",
+    height="calc(100vh - 4rem)",
+    z_index="1"
 )
 col_pdf.float(css=css_pdf)
