@@ -17,15 +17,7 @@ qa_pipeline = pipeline(
     device=device,
 )
 
-# 2) Text-QA fallback (DistilBERT SQuAD)
-text_qa_pipeline = pipeline(
-    "question-answering",
-    model="distilbert-base-cased-distilled-squad",
-    framework="pt",
-    device=device,
-)
-
-# 3) Code summarization (Salesforce CodeT5)
+# 2) Code summarization (Salesforce CodeT5)
 code_summarizer = pipeline(
     "text2text-generation",
     model="Salesforce/codet5-base-multi-sum",
@@ -33,7 +25,7 @@ code_summarizer = pipeline(
     device=device,
 )
 
-# 4) Layman simplifier (Google FLAN-T5)
+# 3) Layman simplifier (Google FLAN-T5)
 layman_simplifier = pipeline(
     "text2text-generation",
     model="google/flan-t5-base",
@@ -41,33 +33,43 @@ layman_simplifier = pipeline(
     device=device,
 )
 
-def _extract_best_span_image(
+def _extract_best_span(
     pdf_path: str,
     question: str
 ) -> Tuple[str, Tuple[float, float, float, float], int, Tuple[float, float]]:
     """
-    Image-based QA (LayoutLMv3) with overflow fallback.
+    Find the top answer span in a PDF and its bounding box.
+    Returns: (span, bbox_pts, page_idx, (width_pts, height_pts))
     """
+    if not os.path.isfile(pdf_path):
+        raise FileNotFoundError(f"PDF not found: {pdf_path}")
+
+    # Render pages at 300 DPI for QA clarity
     pil_pages = convert_from_path(pdf_path, dpi=300)
     doc = fitz.open(pdf_path)
+
     best_span, best_score = "", 0.0
     best_bbox, best_page = None, -1
     page_dims = (0.0, 0.0)
 
-    for idx, img in enumerate(pil_pages):
+    for idx, pil_img in enumerate(pil_pages):
         try:
-            outputs = qa_pipeline(image=img, question=question)
+            outputs = qa_pipeline(image=pil_img, question=question)
         except ValueError:
-            outputs = qa_pipeline(image=img, question=question, doc_stride=0)
+            # On mask-shape errors, disable sliding-window overflow
+            outputs = qa_pipeline(image=pil_img, question=question, doc_stride=0)
 
         for out in outputs:
             span = out.get("answer", "").strip()
             score = out.get("score", 0.0)
             if not span or score <= best_score:
                 continue
+
+            # Locate span in page text to get bbox
             rects = doc[idx].search_for(span)
             if not rects:
                 continue
+
             best_span, best_score = span, score
             best_bbox = rects[0]
             best_page = idx
@@ -77,59 +79,12 @@ def _extract_best_span_image(
     return best_span, best_bbox, best_page, page_dims
 
 
-def _extract_best_span_text(
-    pdf_path: str,
-    question: str
-) -> Tuple[str, Tuple[float, float, float, float], int, Tuple[float, float]]:
-    """
-    Text-based QA fallback using DistilBERT on raw PDF text.
-    """
-    doc = fitz.open(pdf_path)
-    best_span, best_score = "", 0.0
-    best_bbox, best_page = None, -1
-    page_dims = (0.0, 0.0)
-
-    for idx, page in enumerate(doc):
-        text = page.get_text()
-        tokens = text.split()
-        window, stride = 450, 50
-        for start in range(0, len(tokens), stride):
-            chunk = " ".join(tokens[start:start+window])
-            if not chunk:
-                continue
-            out = text_qa_pipeline(question=question, context=chunk)
-            span = out.get("answer", "").strip()
-            score = out.get("score", 0.0)
-            if not span or score <= best_score:
-                continue
-            rects = page.search_for(span)
-            if not rects:
-                continue
-            best_span, best_score = span, score
-            best_bbox = rects[0]
-            best_page = idx
-            page_dims = (page.rect.width, page.rect.height)
-
-    doc.close()
-    return best_span, best_bbox, best_page, page_dims
-
-
-def _extract_best_span(
-    pdf_path: str,
-    question: str
-):
-    """
-    Try image-based QA first, then fallback to text-based QA if no answer.
-    """
-    span, bbox, page_idx, dims = _extract_best_span_image(pdf_path, question)
-    if not span:
-        span, bbox, page_idx, dims = _extract_best_span_text(pdf_path, question)
-    return span, bbox, page_idx, dims
-
-
 def _is_code(span: str) -> bool:
-    keywords = [';', '{', '}', 'def ', 'class ', '->', '<', '>', '=']
-    return any(tok in span for tok in keywords)
+    """
+    Simple heuristic: detect code by common symbols.
+    """
+    tokens = [';', '{', '}', 'def ', 'class ', '->', '<', '>', '=']
+    return any(tok in span for tok in tokens)
 
 
 def get_document_answer_with_highlight(
@@ -139,7 +94,9 @@ def get_document_answer_with_highlight(
     simplify_layman: bool = True
 ) -> Tuple[str, List]:
     """
-    Combines QA, refinement, and highlighting.
+    1) Extract best span + location
+    2) Summarize as code or simplify
+    3) Highlight span on pages
     """
     try:
         span, bbox, page_idx, _ = _extract_best_span(pdf_path, question)
@@ -149,16 +106,17 @@ def get_document_answer_with_highlight(
     if not span or page_idx < 0:
         return "No answer found.", []
 
-    # Refine span
+    # Apply summarization or simplification
     if force_code or _is_code(span):
         span = code_summarizer(f"summarize: {span}", max_length=128, num_return_sequences=1)[0]["generated_text"]
     elif simplify_layman:
         span = layman_simplifier(f"Explain in simple terms: {span}", max_length=128, num_return_sequences=1)[0]["generated_text"]
 
-    # Highlight
+    # Highlight on images
     pil_pages = convert_from_path(pdf_path, dpi=300)
     highlighted = []
-    scale = 300 / 72.0
+    scale = 300 / 72.0  # points to pixels
+
     for idx, img in enumerate(pil_pages):
         overlay = img.convert("RGBA")
         draw = ImageDraw.Draw(overlay, "RGBA")
