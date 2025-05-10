@@ -1,8 +1,14 @@
-transformers
-torchvision
-torch
 streamlit
 streamlit-pdf-viewer
+streamlit-float
+selenium
+pytest
+requests
+transformers
+torch
+torchvision
 pytesseract
 pdf2image
 Pillow
+PyMuPDF
+file_validator

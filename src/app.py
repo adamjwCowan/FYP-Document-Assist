@@ -1,19 +1,31 @@
 import streamlit as st
 import tempfile
+import os
 from pdf2image import convert_from_path
 from ai_model import get_document_answer_with_highlight
 from streamlit_pdf_viewer import pdf_viewer
 from streamlit_float import float_init, float_css_helper
 
-#  1) Page config & float init
+# 1) Page config & float init
 st.set_page_config(layout="wide", page_title="Document QA Assistant")
 float_init()
 
-#  2) Session state & callback
+# 2) Session state & callback
 if "history" not in st.session_state:
     st.session_state.history = []
 if "page_index" not in st.session_state:
     st.session_state.page_index = 0
+
+MAX_FILE_SIZE_MB = 10  # Maximum file size in megabytes
+
+def is_file_size_valid(uploaded_file) -> bool:
+    uploaded_file.seek(0, os.SEEK_END)
+    size = uploaded_file.tell()
+    uploaded_file.seek(0)
+    return size <= MAX_FILE_SIZE_MB * 1024 * 1024
+
+def is_pdf_file(uploaded_file) -> bool:
+    return uploaded_file.name.lower().endswith('.pdf')
 
 def chat_content():
     user_q = st.session_state.content
@@ -64,9 +76,8 @@ with col_chat:
         "🔀 Force Code Summarisation",
         key="force_code",
         value=True,
-        help="When checked, answers will interpreted as code snippets/ examples with a summarisation of said code's function."
+        help="When checked, answers will be interpreted as code snippets/examples with a summarisation of said code's function."
     )
-
 
 # Float chat column
 css_chat = float_css_helper(
@@ -78,17 +89,22 @@ col_chat.float(css=css_chat)
 
 # 5) PDF column
 with col_pdf:
-
     # File uploader / Clear PDF
     if "highlighted_pages" not in st.session_state:
         uploaded = st.file_uploader("Drag & drop your PDF here", type="pdf", key="pdf_uploader")
         if uploaded:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                tmp.write(uploaded.read())
-                st.session_state.pdf_path = tmp.name
-            # Preload pages
-            st.session_state.highlighted_pages = convert_from_path(st.session_state.pdf_path, dpi=200)
-            st.session_state.page_index = 0
+            if not is_file_size_valid(uploaded):
+                st.error(f"File size exceeds {MAX_FILE_SIZE_MB} MB limit.")
+            elif not is_pdf_file(uploaded):
+                st.error("Invalid file type. Please upload a PDF file.")
+            else:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                    tmp.write(uploaded.read())
+                    tmp_path = tmp.name
+                st.session_state.pdf_path = tmp_path
+                # Preload pages
+                st.session_state.highlighted_pages = convert_from_path(st.session_state.pdf_path, dpi=200)
+                st.session_state.page_index = 0
 
     pages = st.session_state.get("highlighted_pages", [])
     if pages:
