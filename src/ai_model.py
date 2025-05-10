@@ -52,12 +52,12 @@ def _extract_best_span(
     best_bbox, best_page = None, -1
     page_dims = (0.0, 0.0)
 
-    for idx, pil_img in enumerate(pil_pages):
+    for idx, img in enumerate(pil_pages):
         try:
-            outputs = qa_pipeline(image=pil_img, question=question)
+            outputs = qa_pipeline(image=img, question=question)
         except ValueError:
-            # On mask-shape errors, disable sliding-window overflow
-            outputs = qa_pipeline(image=pil_img, question=question, doc_stride=0)
+            # Fallback for ragged-mask bug
+            outputs = qa_pipeline(image=img, question=question, doc_stride=0)
 
         for out in outputs:
             span = out.get("answer", "").strip()
@@ -65,13 +65,15 @@ def _extract_best_span(
             if not span or score <= best_score:
                 continue
 
-            # Locate span in page text to get bbox
             rects = doc[idx].search_for(span)
             if not rects:
                 continue
 
+            # Convert Fitz Rect into simple tuple
+            r = rects[0]
+            best_bbox = (r.x0, r.y0, r.x1, r.y1)
+
             best_span, best_score = span, score
-            best_bbox = rects[0]
             best_page = idx
             page_dims = (doc[idx].rect.width, doc[idx].rect.height)
 

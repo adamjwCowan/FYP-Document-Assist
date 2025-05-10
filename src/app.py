@@ -60,12 +60,12 @@ with col_chat:
         help="When checked, answers will be rephrased into simpler, non-technical language."
     )
 
-    # st.checkbox(
-    #     "🔀 Force Code Summarisation",
-    #     key="force_code",
-    #     value=True,
-    #     help="When checked, answers will interpreted as code snippets/ examples with a summarisation of said code's function."
-    # )
+    st.checkbox(
+        "🔀 Force Code Summarisation",
+        key="force_code",
+        value=True,
+        help="When checked, answers will interpreted as code snippets/ examples with a summarisation of said code's function."
+    )
 
 
 # Float chat column
