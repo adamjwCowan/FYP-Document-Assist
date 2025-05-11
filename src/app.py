@@ -6,7 +6,7 @@ import io
 from pdf2image import convert_from_path
 from ai_model import get_document_answer_with_highlight, standardize_images
 from streamlit_float import float_init, float_css_helper
-from PIL import Image  # ensure PIL is in requirements
+from PIL import Image 
 
 # 1) Page config & float init
 st.set_page_config(layout="wide", page_title="Document QA Assistant")
