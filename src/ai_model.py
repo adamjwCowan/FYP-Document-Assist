@@ -1,20 +1,49 @@
 import os
 import torch
 import fitz                     # PyMuPDF for PDF operations
-from pdf2image import convert_from_path
 from transformers import pipeline
 from typing import List, Tuple
-from PIL import ImageDraw
+from PIL import ImageDraw, Image
+import contextlib, io
+from pdf2image import convert_from_path
 
-# Device setup for all pipelines
-device = 0 if torch.cuda.is_available() else -1
+# Device setup
+DEVICE = 0 if torch.cuda.is_available() else -1
+
+# Target image canvas size (pixels)
+TARGET_SIZE = (800, 600)
+
+def safe_convert(pdf_path: str, dpi: int = 300) -> List[Image.Image]:
+    """
+    Convert PDF pages to PIL images without printing the Poppler banner.
+    """
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+        pages = convert_from_path(pdf_path, dpi=dpi)
+    return pages
+
+def standardize_images(pil_images: List[Image.Image]) -> List[Image.Image]:
+    """
+    Resize-and-letterbox every PIL image to TARGET_SIZE,
+    returning uniformly-shaped PIL.Image objects.
+    """
+    standardized = []
+    for img in pil_images:
+        thumb = img.copy()
+        thumb.thumbnail(TARGET_SIZE, Image.LANCZOS)
+        canvas = Image.new("RGB", TARGET_SIZE, (0, 0, 0))
+        x = (TARGET_SIZE[0] - thumb.width) // 2
+        y = (TARGET_SIZE[1] - thumb.height) // 2
+        canvas.paste(thumb, (x, y))
+        standardized.append(canvas)
+    return standardized
 
 # 1) Document-QA (LayoutLMv3)
 qa_pipeline = pipeline(
     "document-question-answering",
     model="impira/layoutlm-document-qa",
     framework="pt",
-    device=device,
+    device=DEVICE,
 )
 
 # 2) Code summarization (Salesforce CodeT5)
@@ -22,7 +51,7 @@ code_summarizer = pipeline(
     "text2text-generation",
     model="Salesforce/codet5-base-multi-sum",
     framework="pt",
-    device=device,
+    device=DEVICE,
 )
 
 # 3) Layman simplifier (Google FLAN-T5)
@@ -30,33 +59,25 @@ layman_simplifier = pipeline(
     "text2text-generation",
     model="google/flan-t5-base",
     framework="pt",
-    device=device,
+    device=DEVICE,
 )
 
-def _extract_best_span(
-    pdf_path: str,
-    question: str
-) -> Tuple[str, Tuple[float, float, float, float], int, Tuple[float, float]]:
+def extract_best_span(
+    std_pages: List[Image.Image],
+    question: str,
+    pdf_path: str
+) -> Tuple[str, Tuple[float, float, float, float], int]:
     """
-    Find the top answer span in a PDF and its bounding box.
-    Returns: (span, bbox_pts, page_idx, (width_pts, height_pts))
+    Find the best answer span and bbox among standardized pages.
     """
-    if not os.path.isfile(pdf_path):
-        raise FileNotFoundError(f"PDF not found: {pdf_path}")
-
-    # Render pages at 300 DPI for QA clarity
-    pil_pages = convert_from_path(pdf_path, dpi=300)
     doc = fitz.open(pdf_path)
-
     best_span, best_score = "", 0.0
     best_bbox, best_page = None, -1
-    page_dims = (0.0, 0.0)
 
-    for idx, img in enumerate(pil_pages):
+    for idx, img in enumerate(std_pages):
         try:
             outputs = qa_pipeline(image=img, question=question)
         except ValueError:
-            # Fallback for ragged-mask bug
             outputs = qa_pipeline(image=img, question=question, doc_stride=0)
 
         for out in outputs:
@@ -69,62 +90,47 @@ def _extract_best_span(
             if not rects:
                 continue
 
-            # Convert Fitz Rect into simple tuple
             r = rects[0]
             best_bbox = (r.x0, r.y0, r.x1, r.y1)
-
-            best_span, best_score = span, score
-            best_page = idx
-            page_dims = (doc[idx].rect.width, doc[idx].rect.height)
+            best_span, best_score, best_page = span, score, idx
 
     doc.close()
-    return best_span, best_bbox, best_page, page_dims
-
+    return best_span, best_bbox, best_page
 
 def _is_code(span: str) -> bool:
-    """
-    Simple heuristic: detect code by common symbols.
-    """
     tokens = [';', '{', '}', 'def ', 'class ', '->', '<', '>', '=']
     return any(tok in span for tok in tokens)
-
 
 def get_document_answer_with_highlight(
     pdf_path: str,
     question: str,
+    std_pages: List[Image.Image],
+    orig_pages: List[Image.Image],
     force_code: bool = False,
     simplify_layman: bool = True
-) -> Tuple[str, List]:
+) -> Tuple[str, List[Image.Image], List[Image.Image]]:
     """
-    1) Extract best span + location
-    2) Summarize as code or simplify
-    3) Highlight span on pages
+    Returns (answer_text, highlighted_images, original_images).
+    Uses preloaded std_pages for QA and orig_pages for display.
     """
-    try:
-        span, bbox, page_idx, _ = _extract_best_span(pdf_path, question)
-    except Exception as e:
-        return f"Error: {e}", []
-
+    span, bbox, page_idx = extract_best_span(std_pages, question, pdf_path)
     if not span or page_idx < 0:
-        return "No answer found.", []
+        return "No answer found.", [], orig_pages
 
-    # Apply summarization or simplification
+    # Refine answer
     if force_code or _is_code(span):
         span = code_summarizer(f"summarize: {span}", max_length=128, num_return_sequences=1)[0]["generated_text"]
     elif simplify_layman:
         span = layman_simplifier(f"Explain in simple terms: {span}", max_length=128, num_return_sequences=1)[0]["generated_text"]
 
-    # Highlight on images
-    pil_pages = convert_from_path(pdf_path, dpi=300)
+    # Highlight on standardized pages
     highlighted = []
-    scale = 300 / 72.0  # points to pixels
-
-    for idx, img in enumerate(pil_pages):
+    for idx, img in enumerate(std_pages):
         overlay = img.convert("RGBA")
         draw = ImageDraw.Draw(overlay, "RGBA")
         if idx == page_idx and bbox:
             x0, y0, x1, y1 = bbox
-            draw.rectangle([x0*scale, y0*scale, x1*scale, y1*scale], outline=(255,255,0), width=2)
+            draw.rectangle([x0, y0, x1, y1], outline=(255,255,0), width=2)
         highlighted.append(overlay.convert("RGB"))
 
-    return span, highlighted
+    return span, highlighted, orig_pages
