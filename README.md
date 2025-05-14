@@ -34,7 +34,7 @@ A web application built with Streamlit that allows users to upload PDF documents
 
 Clone this repository and install the required dependencies:
 
-git clone https://github.com/yourusername/document-qa-assistant.git
+git clone https://github.com/adamjwCowan/FYP-Document-Assist.git
 cd document-qa-assistant
 pip install -r requirements.txt
 
