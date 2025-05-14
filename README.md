@@ -35,7 +35,7 @@ A web application built with Streamlit that allows users to upload PDF documents
 Clone this repository and install the required dependencies:
 
 git clone https://github.com/adamjwCowan/FYP-Document-Assist.git
-cd document-qa-assistant
+cd FYP-Documnet-Assist
 pip install -r requirements.txt
 
     Running the Application
