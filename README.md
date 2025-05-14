@@ -38,13 +38,13 @@ git clone https://github.com/adamjwCowan/FYP-Document-Assist.git
 cd FYP-Documnet-Assist
 pip install -r requirements.txt
 
-Ensure that poppler is installed, adn that the env python interpreter is using Python 3.8.3.
+Ensure that poppler and tesseract-OCR are installed and that the system paths are set for both. Ensure that the env python interpreter is using Python 3.8.3.
 
     Running the Application
 
 To start the application locally:
 
-streamlit run app.py
+Either run the main.py class or use python -m streamlit run src/app.py in the terminal
 
 Visit http://localhost:8501 in your browser to interact with the app.
      File Upload Limit
