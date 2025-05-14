@@ -38,6 +38,8 @@ git clone https://github.com/adamjwCowan/FYP-Document-Assist.git
 cd FYP-Documnet-Assist
 pip install -r requirements.txt
 
+Ensure that poppler is installed, adn that the env python interpreter is using Python 3.8.3.
+
     Running the Application
 
 To start the application locally:
